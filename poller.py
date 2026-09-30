@@ -4,11 +4,16 @@ Telegram DM Relay — polls one or more X (Twitter) accounts for new direct
 messages using twikit (unofficial/scraper-based, no API key) and forwards
 new messages to a Telegram chat via the Bot API.
 
-KNOWN LIMITATION (as of Sept 2026): twikit has no "list my DM inbox" call.
-get_dm_history(user_id) only works for a conversation you already know the
-other party's user_id for. A first-time DM from someone you've never
-messaged/been messaged by before will NOT be detected by this script as
-currently written. See README.md for details and options.
+INBOX DISCOVERY (experimental): twikit's public API has no "list my inbox"
+method, but its own source (twikit/client/v11.py) defines the real X inbox
+endpoint (DM_INBOX = .../dm/inbox_initial_state.json) without ever wrapping
+it in a method. This script calls that endpoint directly, unofficially,
+through twikit's authenticated HTTP client. It has NOT been confirmed
+working against a live account yet — see fetch_inbox() below. If it fails
+or the response shape doesn't match what's expected, each account falls
+back automatically to the known-contacts method (get_dm_history per
+known_contacts entry), which only catches new messages in conversations
+you already have.
 
 Run: python poller.py
 Expects environment variables (see README.md):
@@ -32,6 +37,11 @@ STATE_FILE = Path(os.environ.get("STATE_FILE", "state.json"))
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_DEFAULT_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
+# X's real inbox endpoint. Defined in twikit's own source (v11.py) as
+# Endpoint.DM_INBOX but never wired up to a public method — called here
+# directly, the same way twikit's own dm_conversation() calls DM_CONVERSATION.
+DM_INBOX_URL = "https://x.com/i/api/1.1/dm/inbox_initial_state.json"
+
 
 def load_accounts() -> list[dict]:
     """
@@ -47,9 +57,8 @@ def load_accounts() -> list[dict]:
       }
     ]
 
-    known_contacts are X user IDs (not usernames) this account has an
-    existing DM thread with — required because of the inbox-listing gap
-    noted at the top of this file.
+    known_contacts are X user IDs (not usernames) — used only as a fallback
+    if inbox discovery fails for this account.
     """
     raw = os.environ.get("TWITTER_ACCOUNTS")
     if not raw:
@@ -82,28 +91,89 @@ def send_telegram_message(chat_id: str, text: str) -> None:
         print(f"Telegram send failed ({resp.status_code}): {resp.text}", file=sys.stderr)
 
 
-async def check_account(account: dict, state: dict) -> None:
-    label = account.get("label", "unknown")
-    chat_id = account.get("telegram_chat_id") or TELEGRAM_DEFAULT_CHAT_ID
-    if not chat_id:
-        print(f"[{label}] no Telegram chat id configured, skipping.", file=sys.stderr)
-        return
-
-    client = Client("en-US")
-
-    try:
-        # Cookie-based auth (preferred): no password stored, and lets the
-        # account owner revoke access by logging out elsewhere.
-        client.set_cookies({
-            "auth_token": account["auth_token"],
-            "ct0": account["ct0"],
+def _extract_messages_from_entries(entries: list) -> list[dict]:
+    """
+    Normalizes the 'entries' list found in both inbox_initial_state.json and
+    conversation_timeline responses into a flat list of
+    {id, conversation_id, sender_id, recipient_id, text} dicts.
+    Skips non-message entries (join/leave/reaction events etc).
+    """
+    out = []
+    for item in entries:
+        msg = item.get("message")
+        if not msg:
+            continue
+        data = msg.get("message_data")
+        if not data:
+            continue
+        out.append({
+            "id": data.get("id") or msg.get("id"),
+            "conversation_id": data.get("conversation_id"),
+            "sender_id": data.get("sender_id"),
+            "recipient_id": data.get("recipient_id"),
+            "text": (data.get("text") or "").strip(),
         })
-    except KeyError:
-        print(f"[{label}] missing auth_token/ct0 in account config, skipping.", file=sys.stderr)
-        return
+    return out
 
-    account_state = state.setdefault(label, {})
 
+async def fetch_inbox(client: Client) -> list[dict] | None:
+    """
+    EXPERIMENTAL. Calls X's inbox_initial_state endpoint directly (see
+    module docstring). Returns a flat list of the most recent message per
+    conversation across the WHOLE inbox — including conversations with
+    people this account has never messaged before — or None if the call
+    fails or the response doesn't look like what we expect, so the caller
+    can fall back to the known-contacts method.
+    """
+    try:
+        response, _ = await client.get(
+            DM_INBOX_URL,
+            headers=client._base_headers,
+        )
+    except Exception as e:  # noqa: BLE001 - any failure here just triggers fallback
+        print(f"[inbox] request failed: {e}", file=sys.stderr)
+        return None
+
+    # Response shape is unconfirmed against a live account — this mirrors
+    # the documented shape of X's web inbox_initial_state.json response
+    # (top-level "inbox_initial_state" -> "entries", same entry format as
+    # conversation_timeline). Adjust here once tested against a real account.
+    try:
+        inbox = response.get("inbox_initial_state") or response.get("conversation_timeline")
+        if not inbox or "entries" not in inbox:
+            print(f"[inbox] unexpected response shape, keys: {list(response.keys())}", file=sys.stderr)
+            return None
+        return _extract_messages_from_entries(inbox["entries"])
+    except (AttributeError, TypeError) as e:
+        print(f"[inbox] failed to parse response: {e}", file=sys.stderr)
+        return None
+
+
+async def check_account_via_inbox(client: Client, label: str, chat_id: str, account_state: dict) -> bool:
+    """Returns True if inbox discovery worked (even with zero new messages), False to signal fallback."""
+    messages = await fetch_inbox(client)
+    if messages is None:
+        return False
+
+    seen = account_state.setdefault("_inbox_seen_ids", [])
+    seen_set = set(seen)
+
+    new_messages = [m for m in messages if m["id"] and m["id"] not in seen_set]
+    if new_messages:
+        # entries are typically oldest-first per X's own timeline convention;
+        # send in that order so the chat reads naturally.
+        for m in new_messages:
+            who = m["sender_id"] or "unknown"
+            send_telegram_message(chat_id, f"[{label}] New DM from {who}:\n{m['text']}")
+
+        seen.extend(m["id"] for m in new_messages)
+        # keep this list from growing forever
+        account_state["_inbox_seen_ids"] = seen[-500:]
+
+    return True
+
+
+async def check_account_via_known_contacts(client: Client, label: str, chat_id: str, account: dict, account_state: dict) -> None:
     for contact_id in account.get("known_contacts", []):
         try:
             messages = await client.get_dm_history(contact_id)
@@ -132,6 +202,34 @@ async def check_account(account: dict, state: dict) -> None:
             send_telegram_message(chat_id, f"[{label}] New DM:\n{msg.text}")
 
         account_state[contact_id] = str(new_messages[0].id)
+
+
+async def check_account(account: dict, state: dict) -> None:
+    label = account.get("label", "unknown")
+    chat_id = account.get("telegram_chat_id") or TELEGRAM_DEFAULT_CHAT_ID
+    if not chat_id:
+        print(f"[{label}] no Telegram chat id configured, skipping.", file=sys.stderr)
+        return
+
+    client = Client("en-US")
+
+    try:
+        # Cookie-based auth (preferred): no password stored, and lets the
+        # account owner revoke access by logging out elsewhere.
+        client.set_cookies({
+            "auth_token": account["auth_token"],
+            "ct0": account["ct0"],
+        })
+    except KeyError:
+        print(f"[{label}] missing auth_token/ct0 in account config, skipping.", file=sys.stderr)
+        return
+
+    account_state = state.setdefault(label, {})
+
+    inbox_worked = await check_account_via_inbox(client, label, chat_id, account_state)
+    if not inbox_worked:
+        print(f"[{label}] inbox discovery unavailable, falling back to known_contacts.", file=sys.stderr)
+        await check_account_via_known_contacts(client, label, chat_id, account, account_state)
 
 
 async def main() -> None:
