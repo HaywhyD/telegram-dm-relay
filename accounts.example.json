@@ -1,0 +1,9 @@
+[
+  {
+    "label": "brandaccount",
+    "auth_token": "paste the auth_token cookie value here",
+    "ct0": "paste the ct0 cookie value here",
+    "known_contacts": ["123456789012345678"],
+    "telegram_chat_id": null
+  }
+]

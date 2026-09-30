@@ -1,0 +1,41 @@
+name: Poll DMs and relay to Telegram
+
+on:
+  schedule:
+    # Every 15 minutes. Adjust based on your GitHub Actions minutes budget —
+    # see README.md for the math (this repo is public, so minutes are free
+    # and unlimited on standard runners; this schedule is conservative
+    # anyway to be gentle on rate limits).
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}   # lets you trigger a run manually from the Actions tab
+
+permissions:
+  contents: write   # needed to commit the updated state.json back to the repo
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run poller
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TWITTER_ACCOUNTS: ${{ secrets.TWITTER_ACCOUNTS }}
+        run: python poller.py
+
+      - name: Commit updated state
+        run: |
+          git config user.name "dm-relay-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add state.json
+          git diff --staged --quiet || git commit -m "Update DM state [skip ci]"
+          git push
