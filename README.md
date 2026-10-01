@@ -4,19 +4,32 @@ Forwards new X (Twitter) direct messages to a Telegram chat, using
 [twikit](https://github.com/d60/twikit) (unofficial, no API key/cost) and a
 GitHub Actions cron job instead of X's paid webhook API.
 
-## ⚠️ Known limitation — read this first
+## Inbox discovery (catches first-time DMs too)
 
-twikit has **no "list my inbox" call**. It can only fetch history for a
-conversation you already know the other person's numeric user ID for
-(`get_dm_history(user_id)`). A brand-new person DMing an account for the
-first time will **not** be detected by this script. This is a limitation of
-twikit itself (confirmed open issue: d60/twikit#117), not a bug here.
+twikit's public API has no "list my inbox" method — it can only fetch
+history for a conversation you already know the other person's numeric
+user ID for (`get_dm_history(user_id)`), which would miss anyone DMing you
+for the first time.
 
-This script is built to track **new messages in conversations you already
-have** — good for ongoing threads, not for catching cold/first-time DMs.
-If you need to catch every DM including first-time senders, that requires
-X's official pay-per-use API instead (see the "Handling multiple Twitter
-accounts" doc from setup for the cost breakdown).
+This script works around that: `poller.py` calls X's real inbox endpoint
+(`dm/inbox_initial_state.json`) directly and unofficially, using a
+constant (`Endpoint.DM_INBOX`) that exists in twikit's source but was
+never wrapped in a public method. **Confirmed working as of 2026-10**
+against a live account — it returns the whole inbox, including
+conversations from people who have never messaged the account before.
+
+If that call ever fails (X changes the response shape, rate-limits it,
+etc.), each account automatically falls back to the known-contacts method
+above (`known_contacts` in the account config) — which only catches new
+messages in conversations you've already had, not first-time senders.
+Check the Action's run logs if you want to confirm which path an account
+is using.
+
+⚠️ This, like all of twikit, relies on reverse-engineered internal
+endpoints rather than a stable public API, so it can break whenever X
+changes something. See the "Patch twikit for X's homepage migration"
+step in `.github/workflows/poll.yml` for an example of exactly that kind
+of breakage and fix.
 
 ## Also read before using
 

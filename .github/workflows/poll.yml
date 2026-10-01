@@ -25,6 +25,18 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Patch twikit for X's homepage migration (2026-10)
+        # X's logged-out x.com homepage now redirects to an onboarding page
+        # that doesn't carry the webpack chunk map twikit's ClientTransaction
+        # needs. /i/jf/ still has it. Without this, EVERY request (login or
+        # cookie-auth) fails with "Couldn't get KEY_BYTE indices". Confirmed
+        # fix, upstream PR not yet merged: iSarabjitDhiman/XClientTransaction#48
+        run: |
+          PKG_DIR=$(python -c "import twikit, os; print(os.path.dirname(twikit.__file__))")
+          sed -i 's#url="https://x.com", headers=headers#url="https://x.com/i/jf/", headers=headers#' \
+            "$PKG_DIR/x_client_transaction/utils.py"
+          grep -n 'url="https' "$PKG_DIR/x_client_transaction/utils.py"
+
       - name: Run poller
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

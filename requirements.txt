@@ -1,2 +1,9 @@
-twikit>=2.3.0
+# Using the unclecode/twikit fork instead of stock twikit (PyPI) — it has
+# patches for X's 2026 frontend changes that the original d60/twikit repo
+# hasn't merged. Even this fork needed one more hand-patch as of 2026-10
+# (see the "Install dependencies" step in .github/workflows/poll.yml) to
+# follow X's homepage migration to /i/jf/. Expect to revisit this; X changes
+# their frontend bundling every few weeks and this whole approach is an
+# unofficial scrape, not a stable API.
+git+https://github.com/unclecode/twikit.git
 httpx>=0.27.0
