@@ -2,11 +2,13 @@ name: Poll DMs and relay to Telegram
 
 on:
   schedule:
-    # Every 15 minutes. Adjust based on your GitHub Actions minutes budget —
+    # Every 5 minutes -- this is GitHub Actions's real floor for scheduled
+    # workflows; anything shorter is silently dropped/skipped. Adjust based
+    # on your GitHub Actions minutes budget --
     # see README.md for the math (this repo is public, so minutes are free
     # and unlimited on standard runners; this schedule is conservative
     # anyway to be gentle on rate limits).
-    - cron: "*/15 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch: {}   # lets you trigger a run manually from the Actions tab
 
 permissions:
