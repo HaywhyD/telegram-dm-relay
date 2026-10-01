@@ -172,7 +172,19 @@ def send_telegram_message(chat_id: str, text: str) -> None:
 
 async def resolve_handle(client: Client, user_id: str | None, handle_cache: dict) -> str | None:
     """Resolves a numeric X user ID to an @handle, using/populating a cache
-    (persisted in state.json) so each sender is only looked up once ever."""
+    (persisted in state.json) so each sender is only looked up once ever.
+
+    As of 2026-10, twikit's get_user_by_id() (which calls X's GraphQL
+    UserByRestId query) is consistently blocked by Cloudflare in this CI
+    environment, even though the plain inbox_initial_state.json fetch
+    above is not -- X appears to apply tighter bot-detection to its
+    GraphQL endpoints than to its older "legacy" v1.1 REST endpoints. So
+    we try the GraphQL call first (it's the documented way and may start
+    working again if X's protections change), and fall back to the
+    legacy users/show.json endpoint, which uses the same request() path
+    (and so the same X-Client-Transaction-Id handling) as the working
+    inbox fetch.
+    """
     if not user_id:
         return None
     if user_id in handle_cache:
@@ -183,7 +195,18 @@ async def resolve_handle(client: Client, user_id: str | None, handle_cache: dict
         handle_cache[user_id] = handle or ""
         return handle
     except Exception as e:  # noqa: BLE001 - don't let a lookup failure break the relay
-        print(f"[handle lookup] failed for {user_id}: {e}", file=sys.stderr)
+        print(f"[handle lookup] graphql failed for {user_id}: {e}", file=sys.stderr)
+
+    try:
+        response, _ = await client.get(
+            f"https://x.com/i/api/1.1/users/show.json?user_id={user_id}",
+            headers=client._base_headers,
+        )
+        handle = response.get("screen_name") if isinstance(response, dict) else None
+        handle_cache[user_id] = handle or ""
+        return handle
+    except Exception as e:  # noqa: BLE001
+        print(f"[handle lookup] legacy fallback failed for {user_id}: {e}", file=sys.stderr)
         handle_cache[user_id] = ""  # avoid retrying every run
         return None
 
