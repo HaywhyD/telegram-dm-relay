@@ -305,14 +305,18 @@ def _extract_messages_from_entries(entries: list) -> list[dict]:
     return out
 
 
-async def fetch_inbox(client: Client, handle_cache: dict, state: dict, label: str) -> list[dict] | None:
+async def fetch_inbox(
+    client: Client, handle_cache: dict, state: dict, label: str,
+    account_handle: str, account_state: dict,
+) -> list[dict] | None:
     """
     Calls X's inbox_initial_state endpoint directly (see module docstring).
     Returns a flat list of the most recent message per conversation across
     the WHOLE inbox — including conversations with people this account has
-    never messaged before — or None if the call fails or the response
-    doesn't look like what we expect, so the caller can fall back to the
-    known-contacts method.
+    never messaged before — with the monitored account's OWN outgoing
+    messages filtered out (see self_id below) — or None if the call fails
+    or the response doesn't look like what we expect, so the caller can
+    fall back to the known-contacts method.
 
     As a side effect, also populates handle_cache from this same response's
     "users" dict. X's inbox_initial_state payload already carries a full
@@ -325,6 +329,13 @@ async def fetch_inbox(client: Client, handle_cache: dict, state: dict, label: st
     this specific inbox endpoint is considered "safe" by whatever's
     triggering the block -- any other x.com request in the same run gets a
     403, even with a freshly-computed transaction ID.
+
+    The same "users" dict also lets us find the monitored account's own
+    numeric ID (self_id) for free, by matching account_handle against the
+    screen names in there -- the viewer is always a participant of their
+    own conversations, so their own user object is always present. We
+    cache it in account_state once found, so a run where it's somehow
+    missing still has last run's value to filter with.
     """
     try:
         response, _ = await client.get(
@@ -343,14 +354,32 @@ async def fetch_inbox(client: Client, handle_cache: dict, state: dict, label: st
             return None
 
         users = inbox.get("users") or {}
+        target_handle = (account_handle or "").lstrip("@").strip().lower()
         for uid, user_obj in users.items():
             screen_name = (user_obj or {}).get("screen_name")
-            if screen_name:
-                handle_cache[uid] = screen_name
+            if not screen_name:
+                continue
+            handle_cache[uid] = screen_name
+            if target_handle and screen_name.strip().lower() == target_handle:
+                account_state["_self_id"] = uid
         if users:
             print(f"[inbox] got {len(users)} handle(s) for free from the inbox response", file=sys.stderr)
 
-        return _extract_messages_from_entries(inbox["entries"])
+        messages = _extract_messages_from_entries(inbox["entries"])
+
+        self_id = account_state.get("_self_id")
+        if self_id:
+            before = len(messages)
+            messages = [m for m in messages if str(m.get("sender_id")) != str(self_id)]
+            skipped = before - len(messages)
+            if skipped:
+                print(f"[{label}] filtered out {skipped} outgoing message(s) sent by this account itself", file=sys.stderr)
+        else:
+            print(f"[{label}] couldn't determine this account's own user id (handle '{account_handle}' not "
+                  f"found among inbox participants) -- outgoing self-sent messages won't be filtered this run",
+                  file=sys.stderr)
+
+        return messages
     except (AttributeError, TypeError) as e:
         print(f"[inbox] failed to parse response: {e}", file=sys.stderr)
         return None
@@ -361,7 +390,7 @@ async def check_account_via_inbox(
     account_state: dict, handle_cache: dict, state: dict,
 ) -> bool:
     """Returns True if inbox discovery worked (even with zero new messages), False to signal fallback."""
-    messages = await fetch_inbox(client, handle_cache, state, label)
+    messages = await fetch_inbox(client, handle_cache, state, label, account_handle, account_state)
     if messages is None:
         return False
 
@@ -414,9 +443,16 @@ async def check_account_via_known_contacts(
         if not new_messages:
             continue
 
+        # last_seen_id still needs to advance past our own outgoing messages
+        # (otherwise we'd keep re-scanning them every run), but we only want
+        # to *forward* the ones this account received, not sent.
+        self_id = account_state.get("_self_id")
+
         # messages come back newest-first; send oldest-first so the chat reads naturally
         for msg in reversed(new_messages):
             sender_id = getattr(msg, "sender_id", None)
+            if self_id and str(sender_id) == str(self_id):
+                continue
             sender_handle = await resolve_handle(client, sender_id, handle_cache)
             header = f"{profile_link(account_handle, label)} — New DM from {profile_link(sender_handle, sender_id)}"
             timestamp = format_timestamp(getattr(msg, "time", None))
