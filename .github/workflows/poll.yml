@@ -2,14 +2,35 @@ name: Poll DMs and relay to Telegram
 
 on:
   schedule:
-    # Every 5 minutes -- this is GitHub Actions's real floor for scheduled
-    # workflows; anything shorter is silently dropped/skipped. Adjust based
-    # on your GitHub Actions minutes budget --
-    # see README.md for the math (this repo is public, so minutes are free
-    # and unlimited on standard runners; this schedule is conservative
-    # anyway to be gentle on rate limits).
-    - cron: "*/5 * * * *"
+    # GitHub Actions cron has no sub-minute resolution, and anything
+    # shorter than every-5-minutes on ONE cron line is silently
+    # dropped/skipped. But you *can* stack multiple 5-minute-cadence cron
+    # lines at different minute offsets within that 5-minute window, since
+    # each line is independently "every 5 minutes" and they just land on
+    # different minutes. Minute offsets only go 0-4 before they repeat, so
+    # 5 lines is the real ceiling -- a 6th line would just double up with
+    # one of these. Together these 5 give an effective ~1-minute cadence
+    # (see README.md "Polling frequency" for the full math, and why going
+    # further than this isn't useful and may not even be safe).
+    - cron: "0-59/5 * * * *"   # :00, :05, :10, ...
+    - cron: "1-59/5 * * * *"   # :01, :06, :11, ...
+    - cron: "2-59/5 * * * *"   # :02, :07, :12, ...
+    - cron: "3-59/5 * * * *"   # :03, :08, :13, ...
+    - cron: "4-59/5 * * * *"   # :04, :09, :14, ...
   workflow_dispatch: {}   # lets you trigger a run manually from the Actions tab
+
+concurrency:
+  # If a run ever takes long enough to still be going when the next one's
+  # scheduled minute arrives (shouldn't normally happen -- each run takes
+  # well under a minute -- but network slowness or a retry could do it),
+  # queue the next one instead of letting two runs touch state.json and
+  # the Telegram chat at the same time. Racing writers to state.json would
+  # risk duplicate-forwarded DMs (two runs both deciding the same message
+  # is "new" before either one's seen-id update lands) and a messy git
+  # push conflict. cancel-in-progress is deliberately false: we want every
+  # run to still happen, just not overlap.
+  group: poll-dms
+  cancel-in-progress: false
 
 permissions:
   contents: write   # needed to commit the updated state.json/accounts.enc back to the repo

@@ -40,6 +40,14 @@ from pathlib import Path
 import httpx
 from cryptography.fernet import Fernet, InvalidToken
 from twikit import Client
+from twikit.errors import (
+    AccountLocked,
+    AccountSuspended,
+    Forbidden,
+    TooManyRequests,
+    TwitterException,
+    Unauthorized,
+)
 
 STATE_FILE = Path(os.environ.get("STATE_FILE", "state.json"))
 ACCOUNTS_FILE = Path(os.environ.get("ACCOUNTS_FILE", "accounts.enc"))
@@ -51,6 +59,18 @@ TELEGRAM_DEFAULT_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 # Endpoint.DM_INBOX but never wired up to a public method — called here
 # directly, the same way twikit's own dm_conversation() calls DM_CONVERSATION.
 DM_INBOX_URL = "https://x.com/i/api/1.1/dm/inbox_initial_state.json"
+
+# Where to send operational alerts (token expiry, rate limiting, Cloudflare
+# blocks, unexpected crashes) -- separate from the per-account relay chat,
+# since these are "something needs your attention" messages for whoever
+# runs this, not DMs. Hardcoded rather than a secret/env var because it's
+# not sensitive (just a chat id) and doesn't vary per account.
+OWNER_ALERT_CHAT_ID = "6056524121"
+
+# Minimum time between two alerts for the *same* underlying problem, so a
+# persistent block/rate-limit doesn't spam one message per run (every run
+# interval) forever -- you'll still get the first one immediately.
+ALERT_COOLDOWN = timedelta(minutes=30)
 
 
 def load_accounts() -> list[dict]:
@@ -170,6 +190,54 @@ def send_telegram_message(chat_id: str, text: str) -> None:
         print(f"Telegram send failed ({resp.status_code}): {resp.text}", file=sys.stderr)
 
 
+def classify_error(e: Exception) -> tuple[str, str]:
+    """Maps an exception to (short_key, human-readable label) so callers can
+    both de-dupe alerts (by short_key) and explain what's actually wrong."""
+    if isinstance(e, AccountSuspended):
+        return "suspended", "X reports this account as SUSPENDED"
+    if isinstance(e, AccountLocked):
+        return "locked", "X has LOCKED this account pending verification (captcha/phone)"
+    if isinstance(e, Unauthorized):
+        return "auth", "AUTH FAILED (401) -- the auth_token/ct0 cookie is likely expired or revoked and needs replacing"
+    if isinstance(e, TooManyRequests):
+        return "ratelimit", "RATE LIMITED (429) by X -- polling is happening too often for this account"
+    if isinstance(e, Forbidden):
+        return "blocked", "BLOCKED (403) -- almost certainly Cloudflare/anti-bot, not a real auth problem"
+    if isinstance(e, TwitterException):
+        return "twitter_error", f"X API error: {type(e).__name__}"
+    return "error", f"Unexpected error: {type(e).__name__}"
+
+
+def notify_owner(state: dict, label: str, error: Exception) -> None:
+    """Sends a one-time (per problem, per 30 min) alert to OWNER_ALERT_CHAT_ID
+    so token expiry / rate limiting / Cloudflare blocks / crashes don't go
+    unnoticed between the times you happen to check the logs yourself."""
+    key_suffix, human_label = classify_error(error)
+    key = f"{label}:{key_suffix}"
+
+    alerts = state.setdefault("_error_alerts", {})
+    now = datetime.now(timezone.utc)
+    last_raw = alerts.get(key)
+    if last_raw:
+        try:
+            last = datetime.fromisoformat(last_raw)
+            if now - last < ALERT_COOLDOWN:
+                return  # already alerted recently for this exact problem
+        except ValueError:
+            pass
+    alerts[key] = now.isoformat()
+
+    detail = str(error).strip().replace("\n", " ")
+    if len(detail) > 300:
+        detail = detail[:300] + "…"
+
+    text = (
+        f"\u26a0\ufe0f <b>{escape_html(label)}</b>: {escape_html(human_label)}\n\n"
+        f"<code>{escape_html(detail)}</code>"
+    )
+    send_telegram_message(OWNER_ALERT_CHAT_ID, text)
+
+
 async def resolve_handle(client: Client, user_id: str | None, handle_cache: dict) -> str | None:
     """Resolves a numeric X user ID to an @handle, using/populating a cache
     (persisted in state.json) so each sender is only looked up once ever.
@@ -237,7 +305,7 @@ def _extract_messages_from_entries(entries: list) -> list[dict]:
     return out
 
 
-async def fetch_inbox(client: Client, handle_cache: dict) -> list[dict] | None:
+async def fetch_inbox(client: Client, handle_cache: dict, state: dict, label: str) -> list[dict] | None:
     """
     Calls X's inbox_initial_state endpoint directly (see module docstring).
     Returns a flat list of the most recent message per conversation across
@@ -265,6 +333,7 @@ async def fetch_inbox(client: Client, handle_cache: dict) -> list[dict] | None:
         )
     except Exception as e:  # noqa: BLE001 - any failure here just triggers fallback
         print(f"[inbox] request failed: {e}", file=sys.stderr)
+        notify_owner(state, label, e)
         return None
 
     try:
@@ -289,10 +358,10 @@ async def fetch_inbox(client: Client, handle_cache: dict) -> list[dict] | None:
 
 async def check_account_via_inbox(
     client: Client, label: str, account_handle: str, chat_id: str,
-    account_state: dict, handle_cache: dict,
+    account_state: dict, handle_cache: dict, state: dict,
 ) -> bool:
     """Returns True if inbox discovery worked (even with zero new messages), False to signal fallback."""
-    messages = await fetch_inbox(client, handle_cache)
+    messages = await fetch_inbox(client, handle_cache, state, label)
     if messages is None:
         return False
 
@@ -325,19 +394,14 @@ async def check_account_via_inbox(
 
 async def check_account_via_known_contacts(
     client: Client, label: str, account_handle: str, chat_id: str,
-    account: dict, account_state: dict, handle_cache: dict,
+    account: dict, account_state: dict, handle_cache: dict, state: dict,
 ) -> None:
     for contact_id in account.get("known_contacts", []):
         try:
             messages = await client.get_dm_history(contact_id)
         except Exception as e:  # noqa: BLE001 - surface auth/session failures distinctly
-            err_text = str(e).lower()
-            if "login" in err_text or "auth" in err_text or "401" in err_text or "403" in err_text:
-                send_telegram_message(
-                    TELEGRAM_DEFAULT_CHAT_ID,
-                    f"[{label}] session looks expired — needs a fresh auth_token/ct0 re-export.",
-                )
             print(f"[{label}] error fetching DM history for {contact_id}: {e}", file=sys.stderr)
+            notify_owner(state, label, e)
             continue
 
         last_seen_id = account_state.get(contact_id)
@@ -392,14 +456,18 @@ async def check_account(account: dict, state: dict) -> None:
     account_state = state.setdefault(label, {})
     handle_cache = state.setdefault("_user_handle_cache", {})
 
-    inbox_worked = await check_account_via_inbox(
-        client, label, account_handle, chat_id, account_state, handle_cache
-    )
-    if not inbox_worked:
-        print(f"[{label}] inbox discovery unavailable, falling back to known_contacts.", file=sys.stderr)
-        await check_account_via_known_contacts(
-            client, label, account_handle, chat_id, account, account_state, handle_cache
+    try:
+        inbox_worked = await check_account_via_inbox(
+            client, label, account_handle, chat_id, account_state, handle_cache, state
         )
+        if not inbox_worked:
+            print(f"[{label}] inbox discovery unavailable, falling back to known_contacts.", file=sys.stderr)
+            await check_account_via_known_contacts(
+                client, label, account_handle, chat_id, account, account_state, handle_cache, state
+            )
+    except Exception as e:  # noqa: BLE001 - never let one account's crash take down the others
+        print(f"[{label}] unhandled error: {e}", file=sys.stderr)
+        notify_owner(state, label, e)
 
 
 async def main() -> None:

@@ -153,6 +153,64 @@ you ever make the repo private, the free plan caps you at 2,000
 minutes/month, which works out to roughly a check every 2–3 hours at this
 workflow's per-run cost — see the setup doc for the full math.
 
+## Polling frequency: why there are 5 cron lines, not 1
+
+GitHub Actions cron has no sub-minute resolution, and **a single cron line
+can't go below every 5 minutes** — anything shorter on one line is
+silently skipped, not an error. But a *second* line with a different
+minute offset (e.g. `1-59/5 * * * *` instead of `0-59/5 * * * *`) is still
+"every 5 minutes" on its own, it just lands on different minutes — so
+stacking several offset lines gives you a faster *combined* cadence
+without ever violating the 5-minute-per-line rule.
+
+Minute offsets only go from 0 to 4 before they start repeating (offset 5 is
+the same minute as offset 0), so **5 lines is the real ceiling** for this
+trick — `poll.yml` already uses all 5, giving an effective ~1-minute
+combined cadence. Adding a 6th, 7th, ... line (or duplicating the whole
+workflow file) wouldn't buy anything: it would just double up with one of
+the 5 existing offsets and fire two runs at the same minute for no reason.
+
+Two things worth knowing about that ~1-minute number:
+
+- It's the *scheduled* cadence, not a guarantee. GitHub explicitly
+  deprioritizes scheduled (cron) runs under platform load, and that delay
+  is a platform-wide thing — it happens to everyone's scheduled workflows,
+  not just this repo's — so actual delivery can still lag behind what the
+  cron lines say, especially during busy periods.
+- Going faster isn't obviously *safer*, even if it were possible. The
+  Cloudflare blocks this relay already runs into (see the "Inbox
+  discovery" section and the code comments in `poller.py`) are X's
+  anti-bot system reacting to *this account's* request pattern — hitting
+  it more often is more likely to make that worse, not better. If you ever
+  see the owner-alert chat (see below) light up with `blocked` or
+  `ratelimit` messages more than occasionally, that's a sign to pull this
+  back, not push it further.
+
+The workflow also sets `concurrency: { group: poll-dms, cancel-in-progress:
+false }` so if a run is ever still going when the next offset's minute
+arrives, it queues instead of running in parallel — two runs touching
+`state.json` and Telegram at the same time could otherwise forward the
+same DM twice.
+
+## Error alerts
+
+Token expiry, rate limiting, Cloudflare blocks, and any other unhandled
+error get sent as a Telegram message to a fixed "owner alert" chat
+(`OWNER_ALERT_CHAT_ID` in `poller.py`) — separate from the per-account
+relay chats, since these are "something needs your attention" messages,
+not DMs. Each distinct problem (per account) is throttled to at most one
+alert every 30 minutes, so a persistent issue doesn't spam you once per
+run — you'll still get the very first one immediately. Alert types:
+
+- **`blocked`** — Cloudflare/anti-bot 403. Usually transient; frequent
+  ones may mean the polling frequency needs to come down.
+- **`auth`** — 401. The account's `auth_token`/`ct0` cookies have likely
+  expired or been revoked and need re-exporting (see the onboarding doc).
+- **`ratelimit`** — 429 from X.
+- **`suspended`** / **`locked`** — X has suspended or locked the account.
+- **`error`** — anything else unhandled, so a real bug doesn't fail
+  silently.
+
 ## Files
 
 - `poller.py` — the script that does the checking and forwarding
