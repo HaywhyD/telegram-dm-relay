@@ -54,11 +54,13 @@ REGISTRATION_STATE_FILE = Path(os.environ.get("REGISTRATION_STATE_FILE", "regist
 
 # Each field pulled out independently (not one big sequential regex) so the
 # message's line order/spacing doesn't matter.
+# Accepts "key value", "key: value", or "key:value" -- a missing or extra
+# space/colon shouldn't break registration.
 FIELD_PATTERNS = {
-    "handle": re.compile(r"username\s*@?(\S+)", re.IGNORECASE),
-    "auth_token": re.compile(r"auth_token\s+(\S+)", re.IGNORECASE),
-    "ct0": re.compile(r"\bct0\s+(\S+)", re.IGNORECASE),
-    "code": re.compile(r"\bcode\s+(\S+)", re.IGNORECASE),
+    "handle": re.compile(r"\busername\s*:?\s*@?(\S+)", re.IGNORECASE),
+    "auth_token": re.compile(r"\bauth_token\s*:?\s*(\S+)", re.IGNORECASE),
+    "ct0": re.compile(r"\bct0\s*:?\s*(\S+)", re.IGNORECASE),
+    "code": re.compile(r"\bcode\s*:?\s*(\S+)", re.IGNORECASE),
 }
 
 
