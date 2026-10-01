@@ -37,9 +37,12 @@ import sys
 from pathlib import Path
 
 import httpx
+from cryptography.fernet import Fernet, InvalidToken
 from twikit import Client
 
 STATE_FILE = Path(os.environ.get("STATE_FILE", "state.json"))
+ACCOUNTS_FILE = Path(os.environ.get("ACCOUNTS_FILE", "accounts.enc"))
+ACCOUNTS_ENCRYPTION_KEY = os.environ.get("ACCOUNTS_ENCRYPTION_KEY")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_DEFAULT_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
@@ -51,7 +54,10 @@ DM_INBOX_URL = "https://x.com/i/api/1.1/dm/inbox_initial_state.json"
 
 def load_accounts() -> list[dict]:
     """
-    TWITTER_ACCOUNTS is a JSON array of objects, one per monitored account:
+    Loads the monitored-account list from accounts.enc, an encrypted file
+    committed in this repo (safe even though the repo is public — it's
+    unreadable without ACCOUNTS_ENCRYPTION_KEY, which only exists as a
+    GitHub secret). The file holds a JSON array of objects, one per account:
 
     [
       {
@@ -60,25 +66,37 @@ def load_accounts() -> list[dict]:
         "auth_token": "....",
         "ct0": "....",
         "known_contacts": ["123456789", "987654321"],
-        "telegram_chat_id": "optional override, else TELEGRAM_CHAT_ID is used"
+        "telegram_chat_id": "set automatically by register.py, or manually"
       }
     ]
 
     "handle" is this account's own X @handle (no @), used to link its name
-    in Telegram messages — falls back to "label" if not set, so set "label"
-    to the real handle if you don't want to add both.
+    in Telegram messages — falls back to "label" if not set.
 
     known_contacts are X user IDs (not usernames) — used only as a fallback
     if inbox discovery fails for this account.
+
+    register.py is what normally writes this file (via Telegram
+    self-registration) — see its docstring. You can also create/edit it
+    directly with a short script using cryptography.fernet.Fernet and
+    ACCOUNTS_ENCRYPTION_KEY if you need to add an account by hand.
     """
-    raw = os.environ.get("TWITTER_ACCOUNTS")
-    if not raw:
-        print("TWITTER_ACCOUNTS env var is empty or unset.", file=sys.stderr)
+    if not ACCOUNTS_FILE.exists():
+        print(f"{ACCOUNTS_FILE} not found.", file=sys.stderr)
+        return []
+    if not ACCOUNTS_ENCRYPTION_KEY:
+        print("ACCOUNTS_ENCRYPTION_KEY env var is empty or unset.", file=sys.stderr)
+        return []
+    f = Fernet(ACCOUNTS_ENCRYPTION_KEY.encode())
+    try:
+        decrypted = f.decrypt(ACCOUNTS_FILE.read_bytes())
+    except InvalidToken:
+        print(f"{ACCOUNTS_FILE} could not be decrypted — wrong key, or file corrupted.", file=sys.stderr)
         return []
     try:
-        return json.loads(raw)
+        return json.loads(decrypted)
     except json.JSONDecodeError as e:
-        print(f"TWITTER_ACCOUNTS is not valid JSON: {e}", file=sys.stderr)
+        print(f"Decrypted accounts data is not valid JSON: {e}", file=sys.stderr)
         return []
 
 

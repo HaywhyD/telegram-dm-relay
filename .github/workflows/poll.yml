@@ -12,7 +12,7 @@ on:
   workflow_dispatch: {}   # lets you trigger a run manually from the Actions tab
 
 permissions:
-  contents: write   # needed to commit the updated state.json back to the repo
+  contents: write   # needed to commit the updated state.json/accounts.enc back to the repo
 
 jobs:
   poll:
@@ -39,17 +39,28 @@ jobs:
             "$PKG_DIR/x_client_transaction/utils.py"
           grep -n 'url="https' "$PKG_DIR/x_client_transaction/utils.py"
 
+      - name: Register new accounts from Telegram
+        # Lets account owners self-register by sending one message to the
+        # bot (see register.py's docstring and README.md). Runs before the
+        # poll step so a brand-new registration is picked up starting next
+        # run, not left waiting an extra cycle.
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          ACCOUNTS_ENCRYPTION_KEY: ${{ secrets.ACCOUNTS_ENCRYPTION_KEY }}
+          REGISTRATION_CODE: ${{ secrets.REGISTRATION_CODE }}
+        run: python register.py
+
       - name: Run poller
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          TWITTER_ACCOUNTS: ${{ secrets.TWITTER_ACCOUNTS }}
+          ACCOUNTS_ENCRYPTION_KEY: ${{ secrets.ACCOUNTS_ENCRYPTION_KEY }}
         run: python poller.py
 
       - name: Commit updated state
         run: |
           git config user.name "dm-relay-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add state.json
-          git diff --staged --quiet || git commit -m "Update DM state [skip ci]"
+          git add state.json accounts.enc registration_state.json
+          git diff --staged --quiet || git commit -m "Update DM state / accounts [skip ci]"
           git push

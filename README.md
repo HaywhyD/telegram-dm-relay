@@ -40,13 +40,52 @@ connect accounts whose owners understand and accept that risk.
 
 ## How it works
 
-1. A GitHub Actions workflow runs on a schedule (`*/15 * * * *` by default).
-2. For each configured account, it logs in with saved session cookies
-   (`auth_token` + `ct0` — not a password) and checks each known contact's
-   DM thread for new messages.
-3. New messages get forwarded to Telegram via `sendMessage`.
-4. The last-seen message ID per contact is saved to `state.json` and
-   committed back to the repo, so the next run knows what's new.
+1. A GitHub Actions workflow runs every 5 minutes (GitHub's real minimum
+   for scheduled workflows — anything shorter is silently skipped).
+2. It first checks Telegram for new self-registration messages (see
+   "Adding accounts" below) and folds any into the account list.
+3. For each configured account, it logs in with saved session cookies
+   (`auth_token` + `ct0` — not a password) and checks the inbox for new
+   messages (falling back to known-contacts polling if that fails).
+4. New messages get forwarded to Telegram via `sendMessage`, with the
+   account and sender's handles linked to their X profiles and a link
+   into the DM conversation itself.
+5. State (last-seen message IDs, the account list, the registration
+   offset) is saved and committed back to the repo, so the next run picks
+   up where this one left off.
+
+## Adding accounts (self-registration via Telegram)
+
+Account owners add themselves — no manual secret-editing needed. They
+send ONE message to the bot, in any line order:
+
+```
+username @theirhandle
+auth_token their_auth_token_cookie_value
+ct0 their_ct0_cookie_value
+code THE_SHARED_PASSCODE
+```
+
+`register.py` (run automatically each workflow cycle) parses this,
+checks the passcode against the `REGISTRATION_CODE` secret, and — if it
+matches — adds or updates that account, automatically setting its
+`telegram_chat_id` to whichever chat they messaged from. It replies in
+Telegram confirming success (or that the passcode was wrong, without
+revealing the correct one). A wrong-format message is ignored silently —
+nothing breaks from stray chat.
+
+The account list itself lives in `accounts.enc`, encrypted with
+`ACCOUNTS_ENCRYPTION_KEY` and committed to the repo. This is safe even
+though the repo is public: without that key (which only exists as a
+GitHub secret, never in the repo), the file is unreadable. This exists
+because GitHub Actions secrets are write-only — there's no API to read
+`TWITTER_ACCOUNTS` back and merge a new registration into it, so the
+account list had to move somewhere mergeable.
+
+**Keep `REGISTRATION_CODE` reasonably private** — anyone who has it (and
+finds the bot) can register or overwrite an account entry. Share it only
+with people you're actually onboarding, same as you'd share the bot's
+name.
 
 ## Setup
 
@@ -91,13 +130,14 @@ secret. Add:
 | Secret | Value |
 | --- | --- |
 | `TELEGRAM_BOT_TOKEN` | from step 1 |
-| `TELEGRAM_CHAT_ID` | from step 1 |
-| `TWITTER_ACCOUNTS` | a JSON array — see `accounts.example.json` for the shape |
+| `TELEGRAM_CHAT_ID` | your own default chat, used for session-expiry alerts |
+| `ACCOUNTS_ENCRYPTION_KEY` | a Fernet key (`python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`) — generate once, never changes |
+| `REGISTRATION_CODE` | a passcode you make up and share with people you onboard |
 
-`TWITTER_ACCOUNTS` holds every monitored account in one secret (easier to
-manage than one secret per credential at scale). Copy
-`accounts.example.json`, fill in real values, minify it to one line, and
-paste the whole thing as the secret's value.
+Accounts themselves are **not** set as a secret — see "Adding accounts"
+above. `accounts.example.json` still shows the shape of one account entry
+for reference (e.g. if you ever want to seed `accounts.enc` by hand
+instead of via Telegram registration).
 
 ### 5. Enable Actions and let it run
 
@@ -108,7 +148,7 @@ also trigger a run manually from the repo's Actions tab
 ## GitHub Actions minutes
 
 This repo is **public**, so Actions minutes on standard runners are free
-and unlimited — poll as often as you like (default: every 15 minutes). If
+and unlimited — poll as often as you like (default: every 5 minutes, GitHub's real floor). If
 you ever make the repo private, the free plan caps you at 2,000
 minutes/month, which works out to roughly a check every 2–3 hours at this
 workflow's per-run cost — see the setup doc for the full math.
@@ -117,6 +157,9 @@ workflow's per-run cost — see the setup doc for the full math.
 
 - `poller.py` — the script that does the checking and forwarding
 - `.github/workflows/poll.yml` — the schedule that runs it
-- `accounts.example.json` — shape of the `TWITTER_ACCOUNTS` secret
+- `accounts.example.json` — shape of one account entry (reference only)
+- `accounts.enc` — the real, encrypted account list (committed automatically; unreadable without `ACCOUNTS_ENCRYPTION_KEY`)
+- `register.py` — parses Telegram self-registration messages into `accounts.enc`
 - `state.json` — last-seen message IDs (committed automatically by the workflow)
+- `registration_state.json` — last Telegram update ID processed by `register.py` (committed automatically)
 - `requirements.txt` — Python dependencies
