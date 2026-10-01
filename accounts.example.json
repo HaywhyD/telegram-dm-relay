@@ -1,9 +1,10 @@
 [
   {
-    "label": "brandaccount",
-    "auth_token": "paste the auth_token cookie value here",
-    "ct0": "paste the ct0 cookie value here",
-    "known_contacts": ["123456789012345678"],
-    "telegram_chat_id": null
+    "label": "example_account",
+    "handle": "example_account",
+    "auth_token": "your_auth_token_cookie_value",
+    "ct0": "your_ct0_cookie_value",
+    "known_contacts": ["1234567890"],
+    "telegram_chat_id": "optional, overrides TELEGRAM_CHAT_ID for this account"
   }
 ]

@@ -4,16 +4,22 @@ Telegram DM Relay — polls one or more X (Twitter) accounts for new direct
 messages using twikit (unofficial/scraper-based, no API key) and forwards
 new messages to a Telegram chat via the Bot API.
 
-INBOX DISCOVERY (experimental): twikit's public API has no "list my inbox"
-method, but its own source (twikit/client/v11.py) defines the real X inbox
-endpoint (DM_INBOX = .../dm/inbox_initial_state.json) without ever wrapping
-it in a method. This script calls that endpoint directly, unofficially,
-through twikit's authenticated HTTP client. It has NOT been confirmed
-working against a live account yet — see fetch_inbox() below. If it fails
-or the response shape doesn't match what's expected, each account falls
-back automatically to the known-contacts method (get_dm_history per
-known_contacts entry), which only catches new messages in conversations
-you already have.
+INBOX DISCOVERY: twikit's public API has no "list my inbox" method, but its
+own source (twikit/client/v11.py) defines the real X inbox endpoint
+(DM_INBOX = .../dm/inbox_initial_state.json) without ever wrapping it in a
+method. This script calls that endpoint directly, unofficially, through
+twikit's authenticated HTTP client — confirmed working against a live
+account as of 2026-10. If it ever fails (X changes the response shape,
+etc.), each account falls back automatically to the known-contacts method
+(get_dm_history per known_contacts entry), which only catches new messages
+in conversations you already have, not first-time senders.
+
+MESSAGE LINKS: each forwarded message links the monitored account's own
+@handle and the sender's @handle to their X profiles, and links to the DM
+conversation itself (https://x.com/messages/<conversation_id>) so you can
+jump straight into X. Sender handles are resolved from X's numeric user ID
+via one extra API call per *new* sender, then cached in state.json so a
+given sender is only looked up once, not on every run.
 
 Run: python poller.py
 Expects environment variables (see README.md):
@@ -50,12 +56,17 @@ def load_accounts() -> list[dict]:
     [
       {
         "label": "brandaccount",
+        "handle": "brandaccount",
         "auth_token": "....",
         "ct0": "....",
         "known_contacts": ["123456789", "987654321"],
         "telegram_chat_id": "optional override, else TELEGRAM_CHAT_ID is used"
       }
     ]
+
+    "handle" is this account's own X @handle (no @), used to link its name
+    in Telegram messages — falls back to "label" if not set, so set "label"
+    to the real handle if you don't want to add both.
 
     known_contacts are X user IDs (not usernames) — used only as a fallback
     if inbox discovery fails for this account.
@@ -81,14 +92,65 @@ def save_state(state: dict) -> None:
     STATE_FILE.write_text(json.dumps(state, indent=2, sort_keys=True))
 
 
+def escape_html(text: str) -> str:
+    """Escapes DM content for Telegram's HTML parse mode. Only for raw text
+    we didn't construct ourselves — never escape the <a>/<b> tags we build."""
+    return (
+        (text or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def profile_link(handle: str | None, fallback_id: str | None) -> str:
+    """HTML link to an X profile, or a plain non-linked id if we have no handle."""
+    if handle:
+        return f'<a href="https://x.com/{handle}">@{escape_html(handle)}</a>'
+    return f"user {fallback_id}" if fallback_id else "unknown"
+
+
+def conversation_link(conversation_id: str | None) -> str | None:
+    if not conversation_id:
+        return None
+    return f'<a href="https://x.com/messages/{conversation_id}">Open conversation →</a>'
+
+
 def send_telegram_message(chat_id: str, text: str) -> None:
     if not TELEGRAM_BOT_TOKEN:
         print("TELEGRAM_BOT_TOKEN is not set; cannot send message.", file=sys.stderr)
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    resp = httpx.post(url, json={"chat_id": chat_id, "text": text}, timeout=15)
+    resp = httpx.post(
+        url,
+        json={
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        },
+        timeout=15,
+    )
     if resp.status_code != 200:
         print(f"Telegram send failed ({resp.status_code}): {resp.text}", file=sys.stderr)
+
+
+async def resolve_handle(client: Client, user_id: str | None, handle_cache: dict) -> str | None:
+    """Resolves a numeric X user ID to an @handle, using/populating a cache
+    (persisted in state.json) so each sender is only looked up once ever."""
+    if not user_id:
+        return None
+    if user_id in handle_cache:
+        return handle_cache[user_id] or None  # cached "" means "lookup failed before"
+    try:
+        user = await client.get_user_by_id(user_id)
+        handle = user.screen_name
+        handle_cache[user_id] = handle or ""
+        return handle
+    except Exception as e:  # noqa: BLE001 - don't let a lookup failure break the relay
+        print(f"[handle lookup] failed for {user_id}: {e}", file=sys.stderr)
+        handle_cache[user_id] = ""  # avoid retrying every run
+        return None
 
 
 def _extract_messages_from_entries(entries: list) -> list[dict]:
@@ -118,12 +180,12 @@ def _extract_messages_from_entries(entries: list) -> list[dict]:
 
 async def fetch_inbox(client: Client) -> list[dict] | None:
     """
-    EXPERIMENTAL. Calls X's inbox_initial_state endpoint directly (see
-    module docstring). Returns a flat list of the most recent message per
-    conversation across the WHOLE inbox — including conversations with
-    people this account has never messaged before — or None if the call
-    fails or the response doesn't look like what we expect, so the caller
-    can fall back to the known-contacts method.
+    Calls X's inbox_initial_state endpoint directly (see module docstring).
+    Returns a flat list of the most recent message per conversation across
+    the WHOLE inbox — including conversations with people this account has
+    never messaged before — or None if the call fails or the response
+    doesn't look like what we expect, so the caller can fall back to the
+    known-contacts method.
     """
     try:
         response, _ = await client.get(
@@ -134,10 +196,6 @@ async def fetch_inbox(client: Client) -> list[dict] | None:
         print(f"[inbox] request failed: {e}", file=sys.stderr)
         return None
 
-    # Response shape is unconfirmed against a live account — this mirrors
-    # the documented shape of X's web inbox_initial_state.json response
-    # (top-level "inbox_initial_state" -> "entries", same entry format as
-    # conversation_timeline). Adjust here once tested against a real account.
     try:
         inbox = response.get("inbox_initial_state") or response.get("conversation_timeline")
         if not inbox or "entries" not in inbox:
@@ -149,7 +207,10 @@ async def fetch_inbox(client: Client) -> list[dict] | None:
         return None
 
 
-async def check_account_via_inbox(client: Client, label: str, chat_id: str, account_state: dict) -> bool:
+async def check_account_via_inbox(
+    client: Client, label: str, account_handle: str, chat_id: str,
+    account_state: dict, handle_cache: dict,
+) -> bool:
     """Returns True if inbox discovery worked (even with zero new messages), False to signal fallback."""
     messages = await fetch_inbox(client)
     if messages is None:
@@ -163,8 +224,13 @@ async def check_account_via_inbox(client: Client, label: str, chat_id: str, acco
         # entries are typically oldest-first per X's own timeline convention;
         # send in that order so the chat reads naturally.
         for m in new_messages:
-            who = m["sender_id"] or "unknown"
-            send_telegram_message(chat_id, f"[{label}] New DM from {who}:\n{m['text']}")
+            sender_handle = await resolve_handle(client, m["sender_id"], handle_cache)
+            header = f"{profile_link(account_handle, label)} — New DM from {profile_link(sender_handle, m['sender_id'])}"
+            conv_link = conversation_link(m["conversation_id"])
+            lines = [header, "", escape_html(m["text"])]
+            if conv_link:
+                lines += ["", conv_link]
+            send_telegram_message(chat_id, "\n".join(lines))
 
         seen.extend(m["id"] for m in new_messages)
         # keep this list from growing forever
@@ -173,7 +239,10 @@ async def check_account_via_inbox(client: Client, label: str, chat_id: str, acco
     return True
 
 
-async def check_account_via_known_contacts(client: Client, label: str, chat_id: str, account: dict, account_state: dict) -> None:
+async def check_account_via_known_contacts(
+    client: Client, label: str, account_handle: str, chat_id: str,
+    account: dict, account_state: dict, handle_cache: dict,
+) -> None:
     for contact_id in account.get("known_contacts", []):
         try:
             messages = await client.get_dm_history(contact_id)
@@ -199,13 +268,21 @@ async def check_account_via_known_contacts(client: Client, label: str, chat_id: 
 
         # messages come back newest-first; send oldest-first so the chat reads naturally
         for msg in reversed(new_messages):
-            send_telegram_message(chat_id, f"[{label}] New DM:\n{msg.text}")
+            sender_id = getattr(msg, "sender_id", None)
+            sender_handle = await resolve_handle(client, sender_id, handle_cache)
+            header = f"{profile_link(account_handle, label)} — New DM from {profile_link(sender_handle, sender_id)}"
+            conv_link = conversation_link(getattr(msg, "conversation_id", None) or contact_id)
+            lines = [header, "", escape_html(msg.text)]
+            if conv_link:
+                lines += ["", conv_link]
+            send_telegram_message(chat_id, "\n".join(lines))
 
         account_state[contact_id] = str(new_messages[0].id)
 
 
 async def check_account(account: dict, state: dict) -> None:
     label = account.get("label", "unknown")
+    account_handle = account.get("handle") or label
     chat_id = account.get("telegram_chat_id") or TELEGRAM_DEFAULT_CHAT_ID
     if not chat_id:
         print(f"[{label}] no Telegram chat id configured, skipping.", file=sys.stderr)
@@ -225,11 +302,16 @@ async def check_account(account: dict, state: dict) -> None:
         return
 
     account_state = state.setdefault(label, {})
+    handle_cache = state.setdefault("_user_handle_cache", {})
 
-    inbox_worked = await check_account_via_inbox(client, label, chat_id, account_state)
+    inbox_worked = await check_account_via_inbox(
+        client, label, account_handle, chat_id, account_state, handle_cache
+    )
     if not inbox_worked:
         print(f"[{label}] inbox discovery unavailable, falling back to known_contacts.", file=sys.stderr)
-        await check_account_via_known_contacts(client, label, chat_id, account, account_state)
+        await check_account_via_known_contacts(
+            client, label, account_handle, chat_id, account, account_state, handle_cache
+        )
 
 
 async def main() -> None:
