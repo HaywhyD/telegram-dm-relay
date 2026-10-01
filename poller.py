@@ -237,7 +237,7 @@ def _extract_messages_from_entries(entries: list) -> list[dict]:
     return out
 
 
-async def fetch_inbox(client: Client) -> list[dict] | None:
+async def fetch_inbox(client: Client, handle_cache: dict) -> list[dict] | None:
     """
     Calls X's inbox_initial_state endpoint directly (see module docstring).
     Returns a flat list of the most recent message per conversation across
@@ -245,6 +245,18 @@ async def fetch_inbox(client: Client) -> list[dict] | None:
     never messaged before — or None if the call fails or the response
     doesn't look like what we expect, so the caller can fall back to the
     known-contacts method.
+
+    As a side effect, also populates handle_cache from this same response's
+    "users" dict. X's inbox_initial_state payload already carries a full
+    user object (including screen_name) for every participant, right
+    alongside the messages -- so we get handles for free from the one
+    request that's known to work, instead of making a separate per-sender
+    lookup request. That separate lookup (via resolve_handle's own network
+    calls) is consistently blocked by Cloudflare in this CI environment
+    (both the GraphQL and legacy REST endpoints), seemingly because only
+    this specific inbox endpoint is considered "safe" by whatever's
+    triggering the block -- any other x.com request in the same run gets a
+    403, even with a freshly-computed transaction ID.
     """
     try:
         response, _ = await client.get(
@@ -260,6 +272,15 @@ async def fetch_inbox(client: Client) -> list[dict] | None:
         if not inbox or "entries" not in inbox:
             print(f"[inbox] unexpected response shape, keys: {list(response.keys())}", file=sys.stderr)
             return None
+
+        users = inbox.get("users") or {}
+        for uid, user_obj in users.items():
+            screen_name = (user_obj or {}).get("screen_name")
+            if screen_name:
+                handle_cache[uid] = screen_name
+        if users:
+            print(f"[inbox] got {len(users)} handle(s) for free from the inbox response", file=sys.stderr)
+
         return _extract_messages_from_entries(inbox["entries"])
     except (AttributeError, TypeError) as e:
         print(f"[inbox] failed to parse response: {e}", file=sys.stderr)
@@ -271,7 +292,7 @@ async def check_account_via_inbox(
     account_state: dict, handle_cache: dict,
 ) -> bool:
     """Returns True if inbox discovery worked (even with zero new messages), False to signal fallback."""
-    messages = await fetch_inbox(client)
+    messages = await fetch_inbox(client, handle_cache)
     if messages is None:
         return False
 
