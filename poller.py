@@ -34,6 +34,7 @@ import asyncio
 import json
 import os
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
@@ -134,6 +135,22 @@ def conversation_link(conversation_id: str | None) -> str | None:
     return f'<a href="https://x.com/messages/{conversation_id}">Open conversation →</a>'
 
 
+# Fixed UTC+1 offset for West Africa Time (Lagos doesn't observe DST, so no
+# need for a full tz database lookup on the CI runner).
+_WAT = timezone(timedelta(hours=1))
+
+
+def format_timestamp(time_ms: str | int | None) -> str | None:
+    """Formats X's epoch-milliseconds message time as e.g. 'Oct 1, 2026, 7:23 PM WAT'."""
+    if not time_ms:
+        return None
+    try:
+        dt = datetime.fromtimestamp(int(time_ms) / 1000, tz=_WAT)
+    except (ValueError, TypeError, OSError):
+        return None
+    return dt.strftime("%b %-d, %Y, %-I:%M %p WAT")
+
+
 def send_telegram_message(chat_id: str, text: str) -> None:
     if not TELEGRAM_BOT_TOKEN:
         print("TELEGRAM_BOT_TOKEN is not set; cannot send message.", file=sys.stderr)
@@ -192,6 +209,7 @@ def _extract_messages_from_entries(entries: list) -> list[dict]:
             "sender_id": data.get("sender_id"),
             "recipient_id": data.get("recipient_id"),
             "text": (data.get("text") or "").strip(),
+            "time": data.get("time") or msg.get("time"),
         })
     return out
 
@@ -244,8 +262,12 @@ async def check_account_via_inbox(
         for m in new_messages:
             sender_handle = await resolve_handle(client, m["sender_id"], handle_cache)
             header = f"{profile_link(account_handle, label)} — New DM from {profile_link(sender_handle, m['sender_id'])}"
+            timestamp = format_timestamp(m.get("time"))
             conv_link = conversation_link(m["conversation_id"])
-            lines = [header, "", escape_html(m["text"])]
+            lines = [header]
+            if timestamp:
+                lines.append(f"📅 {timestamp}")
+            lines += ["", escape_html(m["text"])]
             if conv_link:
                 lines += ["", conv_link]
             send_telegram_message(chat_id, "\n".join(lines))
@@ -289,8 +311,12 @@ async def check_account_via_known_contacts(
             sender_id = getattr(msg, "sender_id", None)
             sender_handle = await resolve_handle(client, sender_id, handle_cache)
             header = f"{profile_link(account_handle, label)} — New DM from {profile_link(sender_handle, sender_id)}"
+            timestamp = format_timestamp(getattr(msg, "time", None))
             conv_link = conversation_link(getattr(msg, "conversation_id", None) or contact_id)
-            lines = [header, "", escape_html(msg.text)]
+            lines = [header]
+            if timestamp:
+                lines.append(f"📅 {timestamp}")
+            lines += ["", escape_html(msg.text)]
             if conv_link:
                 lines += ["", conv_link]
             send_telegram_message(chat_id, "\n".join(lines))
