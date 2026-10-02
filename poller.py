@@ -394,10 +394,30 @@ async def check_account_via_inbox(
     if messages is None:
         return False
 
+    # The very first time we check a given account (self-registered just
+    # now, or added by hand), there's no seen-ids baseline yet, so every
+    # message currently sitting in the inbox would otherwise look "new" --
+    # that's the flood of old DMs you'd get right after registering. On
+    # this first run only, we record everything that's there right now as
+    # already-seen WITHOUT forwarding any of it, so the account owner only
+    # starts getting pinged for messages that arrive from this point on.
+    is_first_run = "_inbox_seen_ids" not in account_state
+
     seen = account_state.setdefault("_inbox_seen_ids", [])
     seen_set = set(seen)
 
     new_messages = [m for m in messages if m["id"] and m["id"] not in seen_set]
+
+    if is_first_run:
+        seen.extend(m["id"] for m in new_messages if m["id"])
+        account_state["_inbox_seen_ids"] = seen[-500:]
+        print(
+            f"[{label}] first run for this account -- priming with "
+            f"{len(new_messages)} existing message(s), nothing forwarded",
+            file=sys.stderr,
+        )
+        return True
+
     if new_messages:
         # entries are typically oldest-first per X's own timeline convention;
         # send in that order so the chat reads naturally.
@@ -431,6 +451,19 @@ async def check_account_via_known_contacts(
         except Exception as e:  # noqa: BLE001 - surface auth/session failures distinctly
             print(f"[{label}] error fetching DM history for {contact_id}: {e}", file=sys.stderr)
             notify_owner(state, label, e)
+            continue
+
+        # Same first-run priming as the inbox-discovery path: the first time
+        # we see this contact, record where their history currently stands
+        # without forwarding any of it, so we don't flood old DMs.
+        is_first_run = contact_id not in account_state
+        if is_first_run:
+            if messages:
+                account_state[contact_id] = str(messages[0].id)
+            print(
+                f"[{label}] first run for contact {contact_id} -- priming, nothing forwarded",
+                file=sys.stderr,
+            )
             continue
 
         last_seen_id = account_state.get(contact_id)
