@@ -72,6 +72,10 @@ OWNER_ALERT_CHAT_ID = "6056524121"
 # interval) forever -- you'll still get the first one immediately.
 ALERT_COOLDOWN = timedelta(minutes=30)
 
+# How many times the SAME problem has to happen in a row on the SAME
+# account before notify_owner actually sends anything (see its docstring).
+MIN_CONSECUTIVE_FAILURES = 2
+
 
 def load_accounts() -> list[dict]:
     """
@@ -119,6 +123,18 @@ def load_accounts() -> list[dict]:
     except json.JSONDecodeError as e:
         print(f"Decrypted accounts data is not valid JSON: {e}", file=sys.stderr)
         return []
+
+
+def save_accounts(accounts: list[dict]) -> None:
+    """Writes accounts.enc back out (re-encrypted). Used to persist
+    auth_token/ct0 if X rotates them mid-session -- see check_account's
+    cookie-refresh step, which is what actually calls this."""
+    if not ACCOUNTS_ENCRYPTION_KEY:
+        print("ACCOUNTS_ENCRYPTION_KEY env var is empty or unset, cannot save accounts.enc", file=sys.stderr)
+        return
+    f = Fernet(ACCOUNTS_ENCRYPTION_KEY.encode())
+    encrypted = f.encrypt(json.dumps(accounts).encode())
+    ACCOUNTS_FILE.write_bytes(encrypted)
 
 
 def load_state() -> dict:
@@ -208,13 +224,53 @@ def classify_error(e: Exception) -> tuple[str, str]:
     return "error", f"Unexpected error: {type(e).__name__}"
 
 
-def notify_owner(state: dict, label: str, error: Exception) -> None:
+def _current_run_url() -> str | None:
+    """Link to this specific GitHub Actions run, if we're running in one
+    (these env vars are set automatically by Actions on every job -- no
+    workflow changes needed to get them)."""
+    server = os.environ.get("GITHUB_SERVER_URL")
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    run_id = os.environ.get("GITHUB_RUN_ID")
+    if server and repo and run_id:
+        return f"{server}/{repo}/actions/runs/{run_id}"
+    return None
+
+
+def record_account_success(account_state: dict) -> None:
+    """Call this after any check against an account completes without
+    error. Clears its consecutive-failure counters, so one bad run
+    followed by a good one doesn't escalate into an alert -- see
+    notify_owner's MIN_CONSECUTIVE_FAILURES."""
+    if account_state.get("_consecutive_fails"):
+        account_state["_consecutive_fails"] = {}
+
+
+def notify_owner(state: dict, account_state: dict, label: str, error: Exception) -> None:
     """Sends a one-time (per problem, per 30 min) alert to OWNER_ALERT_CHAT_ID
     so token expiry / rate limiting / Cloudflare blocks / crashes don't go
-    unnoticed between the times you happen to check the logs yourself."""
-    key_suffix, human_label = classify_error(error)
-    key = f"{label}:{key_suffix}"
+    unnoticed between the times you happen to check the logs yourself.
 
+    Requires MIN_CONSECUTIVE_FAILURES in a row for the *same* problem on
+    the *same* account before it actually alerts -- a single 401/403 is
+    often a transient hiccup (Cloudflare, a momentary X-side blip) that's
+    gone by the next run a minute later, not a genuinely dead cookie, and
+    alerting on every single one of those was crying wolf. record_account_
+    success() resets the count, so it really does need to fail several
+    times back-to-back, not just several times total."""
+    key_suffix, human_label = classify_error(error)
+
+    fails = account_state.setdefault("_consecutive_fails", {})
+    fails[key_suffix] = fails.get(key_suffix, 0) + 1
+    count = fails[key_suffix]
+    if count < MIN_CONSECUTIVE_FAILURES:
+        print(
+            f"[{label}] {key_suffix} failure {count}/{MIN_CONSECUTIVE_FAILURES} "
+            f"-- not alerting yet, could be a transient hiccup",
+            file=sys.stderr,
+        )
+        return
+
+    key = f"{label}:{key_suffix}"
     alerts = state.setdefault("_error_alerts", {})
     now = datetime.now(timezone.utc)
     last_raw = alerts.get(key)
@@ -231,11 +287,16 @@ def notify_owner(state: dict, label: str, error: Exception) -> None:
     if len(detail) > 300:
         detail = detail[:300] + "…"
 
-    text = (
-        f"\u26a0\ufe0f <b>{escape_html(label)}</b>: {escape_html(human_label)}\n\n"
-        f"<code>{escape_html(detail)}</code>"
-    )
-    send_telegram_message(OWNER_ALERT_CHAT_ID, text)
+    lines = [
+        f"\u26a0\ufe0f <b>{escape_html(label)}</b>: {escape_html(human_label)}",
+        f"(failed {count}x in a row)",
+        "",
+        f"<code>{escape_html(detail)}</code>",
+    ]
+    run_url = _current_run_url()
+    if run_url:
+        lines += ["", f'<a href="{run_url}">View this workflow run</a>']
+    send_telegram_message(OWNER_ALERT_CHAT_ID, "\n".join(lines))
 
 
 async def resolve_handle(client: Client, user_id: str | None, handle_cache: dict) -> str | None:
@@ -344,8 +405,13 @@ async def fetch_inbox(
         )
     except Exception as e:  # noqa: BLE001 - any failure here just triggers fallback
         print(f"[inbox] request failed: {e}", file=sys.stderr)
-        notify_owner(state, label, e)
+        notify_owner(state, account_state, label, e)
         return None
+
+    # The request above succeeded (no 401/403/etc raised), so whatever the
+    # cookies are right now, they're working -- clear any consecutive-
+    # failure count from a previous run's hiccup.
+    record_account_success(account_state)
 
     try:
         inbox = response.get("inbox_initial_state") or response.get("conversation_timeline")
@@ -450,8 +516,9 @@ async def check_account_via_known_contacts(
             messages = await client.get_dm_history(contact_id)
         except Exception as e:  # noqa: BLE001 - surface auth/session failures distinctly
             print(f"[{label}] error fetching DM history for {contact_id}: {e}", file=sys.stderr)
-            notify_owner(state, label, e)
+            notify_owner(state, account_state, label, e)
             continue
+        record_account_success(account_state)
 
         # Same first-run priming as the inbox-discovery path: the first time
         # we see this contact, record where their history currently stands
@@ -501,13 +568,16 @@ async def check_account_via_known_contacts(
         account_state[contact_id] = str(new_messages[0].id)
 
 
-async def check_account(account: dict, state: dict) -> None:
+async def check_account(account: dict, state: dict) -> bool:
+    """Returns True if this account's auth_token/ct0 were refreshed in
+    accounts.enc (so main() knows whether a save is needed) -- see the
+    cookie-refresh step near the end of this function."""
     label = account.get("label", "unknown")
     account_handle = account.get("handle") or label
     chat_id = account.get("telegram_chat_id") or TELEGRAM_DEFAULT_CHAT_ID
     if not chat_id:
         print(f"[{label}] no Telegram chat id configured, skipping.", file=sys.stderr)
-        return
+        return False
 
     client = Client("en-US")
 
@@ -520,7 +590,7 @@ async def check_account(account: dict, state: dict) -> None:
         })
     except KeyError:
         print(f"[{label}] missing auth_token/ct0 in account config, skipping.", file=sys.stderr)
-        return
+        return False
 
     account_state = state.setdefault(label, {})
     handle_cache = state.setdefault("_user_handle_cache", {})
@@ -536,7 +606,30 @@ async def check_account(account: dict, state: dict) -> None:
             )
     except Exception as e:  # noqa: BLE001 - never let one account's crash take down the others
         print(f"[{label}] unhandled error: {e}", file=sys.stderr)
-        notify_owner(state, label, e)
+        notify_owner(state, account_state, label, e)
+        return False
+
+    # X rotates ct0 periodically. We only ever loaded the value that was
+    # true at registration time, and never looked at it again -- if X has
+    # since rotated it server-side, the account.get("ct0") we started this
+    # run with is already stale, which is a plausible cause of the
+    # intermittent 401 "Could not authenticate you" / 403 "matching csrf
+    # cookie" hiccups: it can still work sometimes and not others depending
+    # on how X currently reconciles it, rather than being a genuinely dead,
+    # permanently-revoked cookie. Picking up whatever's in the client's
+    # live cookie jar now (after a request that worked) and writing it back
+    # to accounts.enc means the NEXT run starts from the freshest known-
+    # good value instead of repeating this run's.
+    live_cookies = client.get_cookies()
+    changed = False
+    for cookie_name in ("auth_token", "ct0"):
+        live_value = live_cookies.get(cookie_name)
+        if live_value and live_value != account.get(cookie_name):
+            print(f"[{label}] {cookie_name} changed since last run -- updating accounts.enc", file=sys.stderr)
+            account[cookie_name] = live_value
+            changed = True
+
+    return changed
 
 
 async def main() -> None:
@@ -547,10 +640,14 @@ async def main() -> None:
 
     state = load_state()
 
+    any_cookies_changed = False
     for account in accounts:
-        await check_account(account, state)
+        changed = await check_account(account, state)
+        any_cookies_changed = any_cookies_changed or changed
 
     save_state(state)
+    if any_cookies_changed:
+        save_accounts(accounts)
 
 
 if __name__ == "__main__":
