@@ -17,6 +17,15 @@ on:
     - cron: "2-59/5 * * * *"   # :02, :07, :12, ...
     - cron: "3-59/5 * * * *"   # :03, :08, :13, ...
     - cron: "4-59/5 * * * *"   # :04, :09, :14, ...
+    # Backup trigger: the 5 lines above already tile every minute exactly
+    # once between them, so this doesn't add a 6th minute slot -- it adds
+    # a SECOND attempt on every minute that already has one. GitHub's own
+    # schedule isn't precise (platform-wide load can delay a run by
+    # several minutes), so this hedges against that: if the "real" slot
+    # for a given minute is running late, this one often isn't, and vice
+    # versa. The concurrency group below queues them instead of running
+    # both at once, so this is pure redundancy, not double the real rate.
+    - cron: "* * * * *"
   workflow_dispatch: {}   # lets you trigger a run manually from the Actions tab
 
 concurrency:

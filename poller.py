@@ -276,9 +276,48 @@ def record_account_success(account_state: dict) -> None:
     notify_owner's MIN_CONSECUTIVE_FAILURES."""
     if account_state.get("_consecutive_fails"):
         account_state["_consecutive_fails"] = {}
+    account_state.pop("_owner_notified_cookie_expired", None)
 
 
-def notify_owner(state: dict, account_state: dict, label: str, error: Exception) -> None:
+# How many times (in a row) an "auth" (expired/revoked cookie) failure has
+# to happen before we message the ACCOUNT OWNER directly (as opposed to
+# MIN_CONSECUTIVE_FAILURES, which is when the admin/owner-alert chat gets
+# pinged). Higher than MIN_CONSECUTIVE_FAILURES on purpose: a transient
+# Cloudflare-flavored 401 can look identical to a genuinely dead cookie
+# for a run or two, and account owners are non-technical end users, so
+# this should only fire once it's clearly not a blip.
+ACCOUNT_OWNER_AUTH_ALERT_THRESHOLD = 3
+
+# Plain-language instructions sent straight to the account owner's own
+# Telegram chat (not the admin alert chat) when their session cookie has
+# genuinely expired. Point this at the real re-export instructions.
+COOKIE_REUPLOAD_URL = "https://github.com/HaywhyD/telegram-dm-relay#2-get-session-cookies-for-each-x-account"
+
+
+def notify_account_owner_cookie_expired(chat_id: str, label: str) -> None:
+    """Messages the account owner's OWN relay chat (not the admin alert
+    chat) once their session has failed auth ACCOUNT_OWNER_AUTH_ALERT_
+    THRESHOLD times in a row, asking them to redo the cookie export.
+    Separate from notify_owner's admin alert, which already fired earlier
+    (lower threshold) -- this one is written for a non-technical end user,
+    not a debugging note."""
+    lines = [
+        "⚠️ Your DM relay session has expired and needs to be refreshed.",
+        "",
+        f"Please redo the steps here to get a new session, then send the new values: {COOKIE_REUPLOAD_URL}",
+        "",
+        "Important: please don't log out of X, or log into X from another "
+        "device/browser, until after you've redone this -- doing so "
+        "immediately invalidates the session this is trying to reuse, "
+        "which is exactly what causes this.",
+    ]
+    send_telegram_message(chat_id, "\n".join(lines))
+
+
+def notify_owner(
+    state: dict, account_state: dict, label: str, error: Exception,
+    chat_id: str | None = None,
+) -> None:
     """Sends a one-time (per problem, per 30 min) alert to OWNER_ALERT_CHAT_ID
     so token expiry / rate limiting / Cloudflare blocks / crashes don't go
     unnoticed between the times you happen to check the logs yourself.
@@ -295,6 +334,18 @@ def notify_owner(state: dict, account_state: dict, label: str, error: Exception)
     fails = account_state.setdefault("_consecutive_fails", {})
     fails[key_suffix] = fails.get(key_suffix, 0) + 1
     count = fails[key_suffix]
+
+    if (
+        key_suffix == "auth"
+        and count == ACCOUNT_OWNER_AUTH_ALERT_THRESHOLD
+        and chat_id
+        and not account_state.get("_owner_notified_cookie_expired")
+    ):
+        notify_account_owner_cookie_expired(chat_id, label)
+        # Once per onset, not once per run -- record_account_success()
+        # clears this flag too, so a future genuine expiry re-alerts.
+        account_state["_owner_notified_cookie_expired"] = True
+
     if count < MIN_CONSECUTIVE_FAILURES:
         print(
             f"[{label}] {key_suffix} failure {count}/{MIN_CONSECUTIVE_FAILURES} "
@@ -401,7 +452,7 @@ def _extract_messages_from_entries(entries: list) -> list[dict]:
 
 async def fetch_inbox(
     client: Client, handle_cache: dict, state: dict, label: str,
-    account_handle: str, account_state: dict,
+    account_handle: str, account_state: dict, chat_id: str | None = None,
 ) -> list[dict] | None:
     """
     Calls X's inbox_initial_state endpoint directly (see module docstring).
@@ -438,7 +489,7 @@ async def fetch_inbox(
         )
     except Exception as e:  # noqa: BLE001 - any failure here just triggers fallback
         print(f"[inbox] request failed: {e}", file=sys.stderr)
-        notify_owner(state, account_state, label, e)
+        notify_owner(state, account_state, label, e, chat_id=chat_id)
         return None
 
     # The request above succeeded (no 401/403/etc raised), so whatever the
@@ -489,7 +540,7 @@ async def check_account_via_inbox(
     account_state: dict, handle_cache: dict, state: dict,
 ) -> bool:
     """Returns True if inbox discovery worked (even with zero new messages), False to signal fallback."""
-    messages = await fetch_inbox(client, handle_cache, state, label, account_handle, account_state)
+    messages = await fetch_inbox(client, handle_cache, state, label, account_handle, account_state, chat_id=chat_id)
     if messages is None:
         return False
 
@@ -549,7 +600,7 @@ async def check_account_via_known_contacts(
             messages = await client.get_dm_history(contact_id)
         except Exception as e:  # noqa: BLE001 - surface auth/session failures distinctly
             print(f"[{label}] error fetching DM history for {contact_id}: {e}", file=sys.stderr)
-            notify_owner(state, account_state, label, e)
+            notify_owner(state, account_state, label, e, chat_id=chat_id)
             continue
         record_account_success(account_state)
 
@@ -642,7 +693,7 @@ async def check_account(account: dict, state: dict) -> bool:
             )
     except Exception as e:  # noqa: BLE001 - never let one account's crash take down the others
         print(f"[{label}] unhandled error: {e}", file=sys.stderr)
-        notify_owner(state, account_state, label, e)
+        notify_owner(state, account_state, label, e, chat_id=chat_id)
         return False
 
     # X rotates ct0 periodically. We only ever loaded the value that was

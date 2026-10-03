@@ -166,11 +166,18 @@ stacking several offset lines gives you a faster *combined* cadence
 without ever violating the 5-minute-per-line rule.
 
 Minute offsets only go from 0 to 4 before they start repeating (offset 5 is
-the same minute as offset 0), so **5 lines is the real ceiling** for this
-trick — `poll.yml` already uses all 5, giving an effective ~1-minute
-combined cadence. Adding a 6th, 7th, ... line (or duplicating the whole
-workflow file) wouldn't buy anything: it would just double up with one of
-the 5 existing offsets and fire two runs at the same minute for no reason.
+the same minute as offset 0), so **5 lines is the real ceiling** for a
+faster *combined cadence* — `poll.yml` uses all 5, giving an effective
+~1-minute combined cadence. A 6th, 7th, ... offset line can't push that
+number down any further; it would just land on a minute one of the first
+5 already covers.
+
+`poll.yml` does have a 6th cron line (`* * * * *`), but it's not trying to
+go faster -- it's a deliberate backup trigger, for the reason in the next
+bullet below: GitHub's own schedule isn't precise, so a second attempt on
+every minute (queued behind the first via the concurrency group, not run
+in parallel) means a delayed "real" run for that minute is often still
+covered by this one.
 
 Two things worth knowing about that ~1-minute number:
 
