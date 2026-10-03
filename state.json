@@ -1,5 +1,8 @@
 {
   "0selt": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2103928066103967965",
       "2103905146111426830",
@@ -10,6 +13,9 @@
     "_self_id": "368578617"
   },
   "1pzf6f": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2105825375385420081",
       "2105811099949879766",
@@ -30,6 +36,9 @@
     "_self_id": "406347530"
   },
   "AVibzlb0": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2054069160490025466",
       "2054069201179177344",
@@ -62,6 +71,9 @@
     "_self_id": "1959295865253765121"
   },
   "AlbaaGIL": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2082804045719474288",
       "2082804055773253874",
@@ -108,6 +120,9 @@
     "_self_id": "94643926"
   },
   "AmiiraSiierra": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2064756725534917056",
       "2058537932097511676",
@@ -151,6 +166,9 @@
     "_self_id": "408004464"
   },
   "Ardnn44": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2061453122833129618",
       "2053816297906151794",
@@ -187,6 +205,9 @@
     "_self_id": "837741695542280192"
   },
   "Atrahrm": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2063638247872290998",
       "2063642360953598121",
@@ -244,6 +265,9 @@
     "_self_id": "3070276277"
   },
   "CLeHtd": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2102483386543816995",
       "2102483406487708137",
@@ -314,6 +338,9 @@
     "_self_id": "2571352982"
   },
   "Criidrrl": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2063302877670498809",
       "2058965365552488731",
@@ -354,7 +381,15 @@
     ],
     "_self_id": "3462079397"
   },
+  "DeMillevejv": {
+    "_consecutive_fails": {
+      "error": 1
+    }
+  },
   "Ec9ibin": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2070285076458254749",
       "2054118548255948954",
@@ -390,10 +425,14 @@
   },
   "FerreiraJoa4": {
     "_consecutive_fails": {
-      "blocked": 12
+      "blocked": 12,
+      "error": 1
     }
   },
   "Gaizka8d": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2085473711776203165",
       "2105273921389895783",
@@ -419,6 +458,9 @@
     "_self_id": "1173734918"
   },
   "Hyundq7": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2097002558644441528",
       "2051366032388784480",
@@ -461,12 +503,18 @@
     "_self_id": "970138697617190918"
   },
   "Iscpw": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2059017319125524879",
       "2059340575195709475"
     ]
   },
   "Lorvennnn": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2072678231560384956",
       "2072686232291704977",
@@ -513,6 +561,9 @@
     "_self_id": "46076451"
   },
   "Lu3pqtu": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2053953776847872512",
       "2053956025456181573",
@@ -555,6 +606,9 @@
     "_self_id": "1200799164302540800"
   },
   "MarihDhto": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2105990251797791177",
       "2106030522249908631",
@@ -597,6 +651,9 @@
     "_self_id": "324034555"
   },
   "NeEqczdn": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2103757851483353181",
       "2104240226881376305",
@@ -637,6 +694,9 @@
     "_self_id": "2344647711"
   },
   "Nealyy5p": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2104363867530752119",
       "2079198632579051745",
@@ -668,6 +728,9 @@
     "_self_id": "275874625"
   },
   "RiaBerim9o": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2099514886023712962",
       "2099517483258356137",
@@ -699,6 +762,9 @@
     "_self_id": "27634700"
   },
   "Rinninja": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2058589423776752063",
       "2058589444945682718",
@@ -733,6 +799,9 @@
     "_self_id": "17562227"
   },
   "ShankKattataj": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "1971230429064884494",
       "1971230429543006458",
@@ -766,6 +835,9 @@
     "_self_id": "1094097882884431874"
   },
   "SoleDeLunamy": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2080673887348826607",
       "2080673902091801078",
@@ -810,6 +882,9 @@
     "_self_id": "976174216780369920"
   },
   "SqJfr3c": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2053563949241569662",
       "2053179438767227217",
@@ -839,6 +914,9 @@
     "_self_id": "453108519"
   },
   "TauHuyov": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2100215436759663041",
       "2100291747888910773",
@@ -907,6 +985,9 @@
     "_self_id": "547066293"
   },
   "YagoeGazavwh": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2105208988753097137",
       "2105232091768066369",
@@ -961,6 +1042,9 @@
     "_self_id": "1048679872728637440"
   },
   "ZUH00fyd": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2072680273050042572",
       "2054096344521027800",
@@ -1004,6 +1088,9 @@
     "_self_id": "1685234457911992320"
   },
   "_dkhio": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2099526143024001425",
       "2089059918867251351"
@@ -1011,6 +1098,9 @@
     "_self_id": "1633485324"
   },
   "_ensjj2": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2104336983967367573"
     ],
@@ -1027,6 +1117,9 @@
     "shaysncg:error": "2026-10-02T22:11:37.070230+00:00"
   },
   "_thallyta__": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2085473493978849445",
       "2082803817494798770",
@@ -3889,6 +3982,9 @@
     "999909700522004480": "htmhrdndsft"
   },
   "account1": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2094827536098185280",
       "2094827618545615208",
@@ -3965,6 +4061,9 @@
     ]
   },
   "armyargentina26": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2096660815390679093",
       "2096660850358595782",
@@ -4050,10 +4149,16 @@
     ]
   },
   "bblxge": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [],
     "_self_id": "322521776"
   },
   "clbonilla": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2061057935795433737",
       "2061057982243143698",
@@ -4095,6 +4200,9 @@
     ]
   },
   "clisbqk3": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2105105784594210904",
       "2067617581943660637",
@@ -4136,6 +4244,9 @@
     "_self_id": "454929605"
   },
   "clydpi": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2071630601552068911",
       "2066176043065524554",
@@ -4186,6 +4297,9 @@
     "_self_id": "2192303447"
   },
   "coldcoffeecold": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2093301619249094820",
       "2090905254460309522",
@@ -4226,6 +4340,9 @@
     "_self_id": "1300915058185310208"
   },
   "dert__co": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2061057935795433737",
       "2061057982243143698",
@@ -4267,6 +4384,9 @@
     ]
   },
   "dudhacomh": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "1935336998459388121",
       "1937207826306507093",
@@ -4329,6 +4449,9 @@
     "_self_id": "129936317"
   },
   "eOngsd": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2058927261039133131",
       "2058927312008319255",
@@ -4371,6 +4494,9 @@
     "_self_id": "4866259223"
   },
   "ekhorizon": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "1565714263590707204",
       "1565715072235732996",
@@ -4446,6 +4572,9 @@
     "_self_id": "227308468"
   },
   "ezpwvii": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "1385790031630061572",
       "1172573719111360516",
@@ -4459,6 +4588,9 @@
     "_self_id": "1638360998"
   },
   "fyk2ic": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2105892150974046394",
       "2083366303620829576",
@@ -4472,6 +4604,9 @@
     "_self_id": "2196331901"
   },
   "hottcoffeehot": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2100368702436708367",
       "2100368713140556027",
@@ -4557,6 +4692,9 @@
     ]
   },
   "iic92ef": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2041147857080557686",
       "2013942248308609463",
@@ -4585,6 +4723,9 @@
     "_self_id": "421229287"
   },
   "jino0t": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2098467409774444789",
       "2084566824327536847",
@@ -4624,6 +4765,9 @@
     "_self_id": "1332580795224092674"
   },
   "jjhand57": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2096636566991167947",
       "2096636714425209051",
@@ -4670,6 +4814,9 @@
     "_self_id": "203928796"
   },
   "jsYk3um": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2029471855027851406",
       "1937557516822397031",
@@ -4691,6 +4838,9 @@
     "_self_id": "2565951836"
   },
   "kxycdq": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2061086154858824162",
       "2061101391087550598",
@@ -4742,6 +4892,9 @@
     "_self_id": "1172799218903343104"
   },
   "lyndsayseed": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2096636246596428048",
       "2096636309590663198",
@@ -4808,6 +4961,9 @@
     ]
   },
   "ocmisu": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2061086154858824162",
       "2061101312909975892",
@@ -4894,6 +5050,9 @@
     ]
   },
   "q1qbqv": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2099598851644559565",
       "2099601906268311908"
@@ -4901,12 +5060,18 @@
     "_self_id": "959515123361681408"
   },
   "qekcad": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2074609212387140087"
     ],
     "_self_id": "1098634458"
   },
   "rq8tu": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2052107528302211342",
       "2058879552496218312",
@@ -4917,7 +5082,8 @@
   },
   "rxwl4l": {
     "_consecutive_fails": {
-      "auth": 12
+      "auth": 12,
+      "error": 1
     },
     "_inbox_seen_ids": [
       "2088924548267712615",
@@ -4930,6 +5096,9 @@
     "_self_id": "1111117483"
   },
   "safrancorse": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2051995521850757214",
       "2051798226831917177",
@@ -4967,6 +5136,9 @@
     "_self_id": "1967514541"
   },
   "shaysncg": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2106206270424580518",
       "2106215630282047955"
@@ -4974,6 +5146,9 @@
     "_self_id": "880022053"
   },
   "soXojls": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2106129652842385762",
       "2106206270424580518",
@@ -4982,6 +5157,9 @@
     "_self_id": "1330111236"
   },
   "tfi91s": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2061086154858824162",
       "2061101312909975892",
@@ -5068,6 +5246,9 @@
     ]
   },
   "vgopo8": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2099493585192190382",
       "2099867251889336644"
@@ -5075,6 +5256,9 @@
     "_self_id": "19476379"
   },
   "viltsu_11": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2105485188792729951",
       "2105485251401195682",
@@ -5170,6 +5354,9 @@
     "_self_id": "886804724"
   },
   "vlusfp": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2105952349487353884",
       "2083431497990586661",
@@ -5178,6 +5365,9 @@
     "_self_id": "404485940"
   },
   "vst8dj": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2029471855027851406",
       "2029774986186215773",
@@ -5202,6 +5392,9 @@
     ]
   },
   "xggu0x": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2071546913963245965",
       "2071533993766605086",
@@ -5242,10 +5435,16 @@
     "_self_id": "2714871590"
   },
   "yc2le": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [],
     "_self_id": "1660316253242916864"
   },
   "ys63ra": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2105812374053593290",
       "2105983168285172094",
@@ -5341,6 +5540,9 @@
     "_self_id": "130192998"
   },
   "\u04454wdz": {
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2106128682352062676"
     ]
