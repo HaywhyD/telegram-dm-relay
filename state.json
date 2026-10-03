@@ -390,7 +390,7 @@
   },
   "FerreiraJoa4": {
     "_consecutive_fails": {
-      "blocked": 10
+      "blocked": 11
     }
   },
   "Hyundq7": {
@@ -4880,7 +4880,7 @@
   },
   "rxwl4l": {
     "_consecutive_fails": {
-      "auth": 10
+      "auth": 11
     },
     "_inbox_seen_ids": [
       "2088924548267712615",
