@@ -133,6 +133,7 @@ secret. Add:
 | `TELEGRAM_CHAT_ID` | your own default chat, used for session-expiry alerts |
 | `ACCOUNTS_ENCRYPTION_KEY` | a Fernet key (`python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`) — generate once, never changes |
 | `REGISTRATION_CODE` | a passcode you make up and share with people you onboard |
+| `PROXY_URL` | *(optional)* residential proxy URL, e.g. `http://brd-customer-XXXX-zone-residential:PASSWORD@brd.superproxy.io:33335` — see "Residential proxy" below |
 
 Accounts themselves are **not** set as a secret — see "Adding accounts"
 above. `accounts.example.json` still shows the shape of one account entry
@@ -191,6 +192,49 @@ false }` so if a run is ever still going when the next offset's minute
 arrives, it queues instead of running in parallel — two runs touching
 `state.json` and Telegram at the same time could otherwise forward the
 same DM twice.
+
+## Residential proxy
+
+GitHub Actions runners share a small, well-known range of datacenter IPs
+that X/Cloudflare already treats with suspicion, independent of whether
+your cookies are valid. Routing requests through a residential proxy
+gives each run a consumer-ISP IP instead, which is the main lever against
+that specific `blocked` alert type (it won't help with `auth` cookie
+expiry or 429 rate limits, which are unrelated).
+
+`twikit`'s `Client` accepts a `proxy=` URL natively — no extra library
+needed. This repo wires it up via the optional `PROXY_URL` secret above,
+or a per-account `"proxy"` field in `accounts.enc` if you ever want
+different accounts to exit through different IPs.
+
+### Using Bright Data
+
+If you're setting up Bright Data specifically: use the **Residential
+Proxies** product — not Web Unlocker, Browser API, or SERP API. Those
+three are different products (a scraping/rendering API with its own
+response format, a hosted remote browser, and a search-results API,
+respectively); none of them hand you a plain `host:port` you can drop
+into another HTTP client the way `twikit` needs. Residential Proxies is
+the plain rotating-IP proxy product, which is what `proxy=` expects.
+
+An account-level **API key/token** (the kind shown on your dashboard
+overview page) is *not* the same thing as proxy credentials and isn't
+used here — don't put it in `PROXY_URL`. What you need instead:
+
+1. In the Bright Data dashboard, create a zone under **Residential
+   Proxies** (if you haven't already).
+2. Open that zone's **Access parameters** / **Overview** tab. It shows a
+   username (looks like `brd-customer-<your_customer_id>-zone-<zone_name>`),
+   a password, and a host:port (typically `brd.superproxy.io:33335`).
+3. Build the URL: `http://<username>:<password>@brd.superproxy.io:33335`.
+4. Set that whole string as the `PROXY_URL` GitHub secret (step 4 above).
+
+No code or workflow changes are needed beyond setting the secret — it's
+already read by `poller.py` and passed through by the workflow.
+
+**Security note:** since an API token was pasted into this chat, treat it
+as exposed — it's worth rotating/regenerating in the Bright Data
+dashboard, even though it isn't what gets used as `PROXY_URL`.
 
 ## Error alerts
 

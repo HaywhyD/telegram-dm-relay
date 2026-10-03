@@ -55,6 +55,15 @@ ACCOUNTS_ENCRYPTION_KEY = os.environ.get("ACCOUNTS_ENCRYPTION_KEY")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_DEFAULT_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
+# Residential/mobile proxy to route all X traffic through, instead of the
+# GitHub Actions runner's own (datacenter, widely-flagged) IP. twikit's
+# Client accepts this natively (see twikit/client/client.py). Format:
+# "http://user:pass@host:port" -- works for rotating-endpoint providers
+# like Webshare/IPRoyal/Bright Data. A per-account "proxy" field in
+# accounts.enc overrides this default, in case accounts ever need
+# different exit IPs.
+PROXY_URL = os.environ.get("PROXY_URL") or None
+
 # X's real inbox endpoint. Defined in twikit's own source (v11.py) as
 # Endpoint.DM_INBOX but never wired up to a public method — called here
 # directly, the same way twikit's own dm_conversation() calls DM_CONVERSATION.
@@ -579,7 +588,8 @@ async def check_account(account: dict, state: dict) -> bool:
         print(f"[{label}] no Telegram chat id configured, skipping.", file=sys.stderr)
         return False
 
-    client = Client("en-US")
+    proxy = account.get("proxy") or PROXY_URL
+    client = Client("en-US", proxy=proxy) if proxy else Client("en-US")
 
     try:
         # Cookie-based auth (preferred): no password stored, and lets the
