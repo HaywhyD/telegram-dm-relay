@@ -133,7 +133,8 @@ secret. Add:
 | `TELEGRAM_CHAT_ID` | your own default chat, used for session-expiry alerts |
 | `ACCOUNTS_ENCRYPTION_KEY` | a Fernet key (`python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`) — generate once, never changes |
 | `REGISTRATION_CODE` | a passcode you make up and share with people you onboard |
-| `PROXY_URL` | *(optional)* residential proxy URL, e.g. `http://brd-customer-XXXX-zone-residential:PASSWORD@brd.superproxy.io:33335` — see "Residential proxy" below |
+| `PROXY_URL` | *(optional)* a single proxy URL, e.g. `http://user:pass@host:port` — see "Residential proxy" below |
+| `PROXY_URLS` | *(optional)* several proxy URLs, comma-separated — each account sticks to one, spreading load across the pool. Takes priority over `PROXY_URL` when both are set |
 
 Accounts themselves are **not** set as a secret — see "Adding accounts"
 above. `accounts.example.json` still shows the shape of one account entry
@@ -235,6 +236,30 @@ already read by `poller.py` and passed through by the workflow.
 **Security note:** since an API token was pasted into this chat, treat it
 as exposed — it's worth rotating/regenerating in the Bright Data
 dashboard, even though it isn't what gets used as `PROXY_URL`.
+
+### Spreading accounts across several proxies
+
+If you're monitoring more than a handful of accounts, don't route all of
+them through one proxy IP -- that just moves the "too much traffic from
+one IP" problem from GitHub's runners to your proxy. Set `PROXY_URLS`
+(comma-separated) instead of `PROXY_URL`, e.g.:
+
+```
+http://user1:pass1@1.2.3.4:6754,http://user1:pass1@5.6.7.8:6014,http://user1:pass1@9.10.11.12:6641
+```
+
+Each account is deterministically assigned one proxy from the list by
+hashing its label, and keeps using that same proxy on every run (not
+randomized per run). That's intentional: an X session that suddenly
+connects from a different IP/country every few minutes looks like
+account takeover to X's own fraud detection -- a bigger risk than one
+proxy IP seeing a bit more traffic. With N accounts spread over M
+proxies, each proxy only ever has to carry ~N/M accounts' worth of
+traffic.
+
+A per-account `"proxy"` field in `accounts.enc` still overrides both
+`PROXY_URL` and `PROXY_URLS` for that one account, if you ever need to
+pin a specific account to a specific IP by hand.
 
 ## Error alerts
 

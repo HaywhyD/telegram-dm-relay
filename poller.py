@@ -64,6 +64,30 @@ TELEGRAM_DEFAULT_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 # different exit IPs.
 PROXY_URL = os.environ.get("PROXY_URL") or None
 
+# Optional pool of several proxy URLs (comma-separated), to spread accounts
+# across more than one exit IP instead of hammering a single one. Each
+# account is deterministically (not randomly) assigned one proxy from the
+# pool by hashing its label -- same account always gets the same IP on
+# every run. That matters: an X session that suddenly starts connecting
+# from a different IP/country every few minutes looks like account
+# takeover to X's own fraud detection, which is a bigger risk than one
+# shared exit IP seeing a bit more traffic. PROXY_URLS takes priority over
+# the single PROXY_URL above when both are set; a per-account "proxy"
+# field in accounts.enc overrides both.
+PROXY_URLS = [u.strip() for u in os.environ.get("PROXY_URLS", "").split(",") if u.strip()]
+
+
+def pick_proxy(label: str) -> str | None:
+    """Deterministically assign one proxy from PROXY_URLS to this account
+    label (sticky across runs), falling back to PROXY_URL, then None."""
+    if PROXY_URLS:
+        # crc32 instead of hash(): hash() is salted per-process in Python
+        # (PYTHONHASHSEED), so it would NOT be stable across runs/workers.
+        import zlib
+        idx = zlib.crc32(label.encode("utf-8")) % len(PROXY_URLS)
+        return PROXY_URLS[idx]
+    return PROXY_URL
+
 # X's real inbox endpoint. Defined in twikit's own source (v11.py) as
 # Endpoint.DM_INBOX but never wired up to a public method — called here
 # directly, the same way twikit's own dm_conversation() calls DM_CONVERSATION.
@@ -588,8 +612,10 @@ async def check_account(account: dict, state: dict) -> bool:
         print(f"[{label}] no Telegram chat id configured, skipping.", file=sys.stderr)
         return False
 
-    proxy = account.get("proxy") or PROXY_URL
+    proxy = account.get("proxy") or pick_proxy(label)
     client = Client("en-US", proxy=proxy) if proxy else Client("en-US")
+    if proxy:
+        print(f"[{label}] using proxy {proxy.rsplit('@', 1)[-1]}", file=sys.stderr)
 
     try:
         # Cookie-based auth (preferred): no password stored, and lets the
