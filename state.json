@@ -547,7 +547,7 @@
   },
   "FerreiraJoa4": {
     "_consecutive_fails": {
-      "blocked": 48,
+      "blocked": 49,
       "error": 7
     }
   },
@@ -6092,7 +6092,9 @@
     "_self_id": "2565951836"
   },
   "kxycdq": {
-    "_consecutive_fails": {},
+    "_consecutive_fails": {
+      "error": 1
+    },
     "_inbox_seen_ids": [
       "2061086154858824162",
       "2061101391087550598",
@@ -6327,7 +6329,7 @@
   },
   "rxwl4l": {
     "_consecutive_fails": {
-      "auth": 48,
+      "auth": 49,
       "error": 7
     },
     "_inbox_seen_ids": [
