@@ -83,5 +83,26 @@ jobs:
           git config user.name "dm-relay-bot"
           git config user.email "actions@users.noreply.github.com"
           git add state.json accounts.enc registration_state.json
-          git diff --staged --quiet || git commit -m "Update DM state / accounts [skip ci]"
-          git push
+          git diff --staged --quiet && { echo "nothing to commit"; exit 0; }
+          git commit -m "Update DM state / accounts [skip ci]"
+
+          # actions/checkout@v4 pins to whatever main looked like when THIS
+          # run was queued, not when it actually started. With several
+          # cron-offset schedules plus the concurrency group above, a run
+          # can sit queued behind another one that pushes in the meantime
+          # -- so origin/main has moved past what we checked out by the
+          # time we get here, and a plain "git push" is rejected as
+          # non-fast-forward. state.json/accounts.enc/registration_state.json
+          # are all just-data files where "rebase onto whatever's newest"
+          # is always the right resolution (there's nothing to meaningfully
+          # merge), so retry with a rebase instead of failing the job.
+          for attempt in 1 2 3 4 5; do
+            if git push; then
+              exit 0
+            fi
+            echo "push rejected (attempt $attempt), rebasing onto latest origin/main and retrying..."
+            git fetch origin main
+            git rebase origin/main
+          done
+          echo "::error::Could not push updated state after 5 attempts"
+          exit 1
